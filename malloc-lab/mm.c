@@ -77,7 +77,9 @@ team_t team = {
 /* get prev block payload pointer */
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DWORD))
 
-/* set degug mode */
+/*********************************************************
+ *  set degug mode
+ *********************************************************/
 #define DEBUG 0
 #if DEBUG
 #define CHECKHEAP(where) mm_checkheap(where)
@@ -85,10 +87,31 @@ team_t team = {
 #define CHECKHEAP(where)
 #endif
 
+/*********************************************************
+ * set alloc mode
+ *********************************************************/
+#define MODE_IMPLICIT 1
+#define MODE_EXPLICIT 2
+#define MODE_SEGLIST 3
+
+#define ALLOC_MODE MODE_IMPLICIT
+
+/*********************************************************
+ * function declaration
+ *********************************************************/
 static void *find_fit(size_t asize);
 static void *coalesce(void *ptr);
 static void *extend_heap(size_t words);
 static void *place(void *bp, size_t size);
+
+static int implicit_mm_init(void);
+static void *implicit_mm_malloc(size_t size);
+static void *implicit_find_fit(size_t asize);
+static void *implicit_extend_heap(size_t words);
+static void *implicit_place(void *bp, size_t size);
+static void implicit_mm_free(void *ptr);
+static void *implicit_coalesce(void *ptr);
+
 static void mm_checkheap(const char *where);
 static int in_heap(const void *p);
 static int aligned(const void *p);
@@ -98,7 +121,18 @@ static int aligned(const void *p);
  */
 int mm_init(void)
 {
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_mm_init();
+    }
+    else
+    {
+        return -1;
+    }
+}
 
+static int implicit_mm_init(void)
+{
     void *p;
     // memory for padding, prologue, epilogue to align DWORD
     if ((p = mem_sbrk(2 * DWORD)) == (void *)-1)
@@ -122,6 +156,18 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
 
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_mm_malloc(size);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static void *implicit_mm_malloc(size_t size)
+{
     size_t asize;
     void *bp;
 
@@ -176,6 +222,18 @@ void *mm_malloc(size_t size)
 
 static void *find_fit(size_t asize)
 {
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_find_fit(asize);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static void *implicit_find_fit(size_t asize)
+{
     for (void *bp = (void *)((char *)mem_heap_lo() + 4 * WORD); GET_SIZE(HDRP(bp)) > 0; bp = (void *)NEXT_BLKP(bp))
     {
         if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize)
@@ -188,6 +246,18 @@ static void *find_fit(size_t asize)
 }
 
 static void *extend_heap(size_t words)
+{
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_extend_heap(words);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static void *implicit_extend_heap(size_t words)
 {
     size_t asize;
     void *bp;
@@ -221,6 +291,18 @@ static void *extend_heap(size_t words)
 }
 
 static void *place(void *bp, size_t size)
+{
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_place(bp, size);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static void *implicit_place(void *bp, size_t size)
 {
     assert(bp != NULL);
     assert(in_heap(bp));
@@ -257,6 +339,14 @@ static void *place(void *bp, size_t size)
  */
 void mm_free(void *ptr)
 {
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        implicit_mm_free(ptr);
+    }
+}
+
+static void implicit_mm_free(void *ptr)
+{
     if (ptr == NULL)
     {
         return;
@@ -275,6 +365,18 @@ void mm_free(void *ptr)
  * coalesce - merge with adjacent free block
  */
 static void *coalesce(void *ptr)
+{
+    if (ALLOC_MODE == MODE_IMPLICIT)
+    {
+        return implicit_coalesce(ptr);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+static void *implicit_coalesce(void *ptr)
 {
     assert(ptr != NULL);
     assert(in_heap(ptr));
