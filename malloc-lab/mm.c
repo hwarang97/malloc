@@ -77,6 +77,7 @@ team_t team = {
 /* get prev block payload pointer */
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DWORD))
 
+/* set degug mode */
 #define DEBUG 0
 #if DEBUG
 #define CHECKHEAP(where) mm_checkheap(where)
@@ -325,51 +326,65 @@ static void *coalesce(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    /*
+    parameters:
+        ptr: old bp, which indicates payload start address
+        size: payload size to be allocated
 
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
+    return: NULL if failee else new bp
+    */
+
+    void *old_ptr = ptr;
+    void *new_ptr;
+    size_t old_size;
+    size_t copy_size;
+
+    // ask memory with 0 size, no need to allocate memory
+    if (size == 0)
+    {
+        mm_free(old_ptr);
+        CHECKHEAP("after mm_realloc");
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    }
 
-    // void *new_ptr;
-    // unsigned int old_size = GET_SIZE(HDRP(ptr));
+    // mm_malloc(size)
+    if (old_ptr == NULL)
+    {
+        if ((new_ptr = mm_malloc(size)) == NULL)
+        {
+            CHECKHEAP("after mm_realloc");
+            return NULL;
+        }
+        CHECKHEAP("after mm_realloc");
+        return new_ptr;
+    }
 
-    // // invalide pointer
-    // if (ptr == NULL)
-    // {
-    //     return NULL;
-    // }
+    // when ask same size
+    old_size = GET_SIZE(HDRP(old_ptr)) - DWORD;
+    if (old_size == size)
+    {
+        CHECKHEAP("after mm_realloc");
+        return old_ptr;
+    }
 
-    // // ask memory with 0 size, no need to allocate memory
-    // if (size == 0)
-    // {
-    //     mm_free(ptr);
-    //     return NULL;
-    // }
+    // compare asked size with old size and choose smaller
+    copy_size = (old_size < size) ? old_size : size;
 
-    // // compare asked size and old size
-    // if (old_size == size)
-    // {
-    //     return ptr;
-    // }
-    // else
-    // {
-    //     // allocate size memory and free old ptr
-    //     if ((new_ptr = mm_malloc(size)) == NULL)
-    //     {
-    //         return NULL;
-    //     }
-    //     mm_free(ptr);
-    //     return new_ptr;
-    // }
+    // allocate
+    if ((new_ptr = mm_malloc(size)) == NULL)
+    {
+        CHECKHEAP("after mm_realloc");
+        return NULL;
+    }
+
+    // copy payload
+    memcpy(new_ptr, old_ptr, copy_size);
+
+    // free old ptr
+    mm_free(old_ptr);
+
+    CHECKHEAP("after mm_realloc");
+    return new_ptr;
 }
 
 static void mm_checkheap(const char *where)
