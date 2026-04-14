@@ -80,7 +80,7 @@ team_t team = {
 /*********************************************************
  *  set degug mode
  *********************************************************/
-#define DEBUG 0
+#define DEBUG 1
 #if DEBUG
 #define CHECKHEAP(where) mm_checkheap(where)
 #else
@@ -94,7 +94,7 @@ team_t team = {
 #define MODE_EXPLICIT 2
 #define MODE_SEGLIST 3
 
-#define ALLOC_MODE MODE_IMPLICIT
+#define ALLOC_MODE MODE_EXPLICIT
 
 /*********************************************************
  * function declaration
@@ -112,9 +112,19 @@ static void *implicit_place(void *bp, size_t size);
 static void implicit_mm_free(void *ptr);
 static void *implicit_coalesce(void *ptr);
 
+static int explicit_mm_init(void);
+static void *explicit_extend_heap(size_t words);
+static void *explicit_coalesce(void *ptr);
+static void implicit_mm_free(void *ptr);
+
 static void mm_checkheap(const char *where);
 static int in_heap(const void *p);
 static int aligned(const void *p);
+
+/*********************************************************
+ * global variable
+ *********************************************************/
+static void *free_list_head = NULL;
 
 /*
  * mm_init - initialize the malloc package.
@@ -124,6 +134,10 @@ int mm_init(void)
     if (ALLOC_MODE == MODE_IMPLICIT)
     {
         return implicit_mm_init();
+    }
+    else if (ALLOC_MODE == MODE_EXPLICIT)
+    {
+        return explicit_mm_init();
     }
     else
     {
@@ -146,6 +160,33 @@ static int implicit_mm_init(void)
 
     // set epilogue footer
     *(unsigned int *)((char *)p + 3 * WORD) = PACK(0, 1);
+    return 0;
+}
+
+static int explicit_mm_init(void)
+{
+    char *p;
+    size_t words;
+
+    // memory for padding, prologue, epilogue to align DWORD
+    if ((p = mem_sbrk(4 * WORD)) == (void *)-1)
+    {
+        return -1;
+    }
+
+    // set prologue header and footer
+    *(unsigned int *)(p + 1 * WORD) = PACK(DWORD, 1);
+    *(unsigned int *)(p + 2 * WORD) = PACK(DWORD, 1);
+
+    // set epilogue footer
+    *(unsigned int *)(p + 3 * WORD) = PACK(0, 1);
+
+    // calc words
+    words = (4 * DWORD) / WORD;
+
+    // alloc block
+    extend_heap(words);
+
     return 0;
 }
 
@@ -281,6 +322,46 @@ static void *implicit_extend_heap(size_t words)
     // init header, footer
     PUT(HDRP(bp), PACK(asize, 0));
     PUT(FTRP(bp), PACK(asize, 0));
+
+    // update epilogue header
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+
+    bp = coalesce(bp);
+    CHECKHEAP("after extend_heap");
+    return (void *)bp;
+}
+
+static void *explicit_extend_heap(size_t words)
+{
+    size_t asize;
+    void *bp;
+
+    // 8배수가 되도록 짝수 words 값을 구하고 byte로 변환
+    if ((words % 2) == 1)
+    {
+        asize = (words + 1) * WORD;
+    }
+    else
+    {
+        asize = words * WORD;
+    }
+
+    // 반환되는 주소는 epilogue_header 마지막 주소이므로, 사실 payload를 가리키는 자리
+    if ((bp = mem_sbrk(asize)) == (void *)-1)
+    {
+        return NULL;
+    }
+
+    // init header, footer
+    PUT(HDRP(bp), PACK(asize, 0));
+    PUT(FTRP(bp), PACK(asize, 0));
+
+    // init prev, next
+    *(void **)bp = NULL;
+    *(void **)((char *)bp + sizeof(void *)) = free_list_head;
+
+    // append free_list
+    free_list_head = bp;
 
     // update epilogue header
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
