@@ -129,10 +129,12 @@ static void *explicit_extend_heap(size_t words);
 static void *explicit_coalesce(void *ptr);
 static void implicit_mm_free(void *ptr);
 static void remove_free_block(void *bp);
+static void insert_free_block(void *bp);
 
 static void mm_checkheap(const char *where);
 static int in_heap(const void *p);
 static int aligned(const void *p);
+static void mm_check_free_list(const char *where);
 
 /*********************************************************
  * global variable
@@ -481,8 +483,10 @@ static void explicit_mm_free(void *ptr)
     assert(free_list_head == NULL || *(void **)PRED(free_list_head) == NULL);
     assert(free_list_head == NULL || *(void **)SUCC(free_list_head) == NULL || PRED_BLKP(SUCC_BLKP(free_list_head)) == free_list_head);
 
+    // free block
     PUT(HDRP(ptr), PACK(GET_SIZE(HDRP(ptr)), 0));
     PUT(FTRP(ptr), PACK(GET_SIZE(HDRP(ptr)), 0));
+
     coalesce(ptr);
 
     // iterate free_list to check state
@@ -572,27 +576,49 @@ static void *explicit_coalesce(void *ptr)
 
     else if (prev_allowed && !next_allowed)
     {
+        // remove next block from free list
+        remove_free_block(NEXT_BLKP(bp));
+
         unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next_bp));
         PUT(HDRP(bp), PACK(asize, 0));
         PUT(FTRP(bp), PACK(asize, 0));
+
+        // insert coalesced free block to free list
+        insert_free_block(bp);
+
         CHECKHEAP("after coalesce");
         return (void *)bp;
     }
 
     else if (!prev_allowed && next_allowed)
     {
+        // remove next block from free list
+        remove_free_block(PREV_BLKP(bp));
+
         unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_bp));
         PUT(HDRP(prev_bp), PACK(asize, 0));
         PUT(FTRP(prev_bp), PACK(asize, 0));
+
+        // insert coalesced free block to free list
+        insert_free_block(prev_bp);
+
         CHECKHEAP("after coalesce");
         return (void *)prev_bp;
     }
 
     else
     {
+        // remove next block from free list
+        remove_free_block(PREV_BLKP(bp));
+        remove_free_block(NEXT_BLKP(bp));
+
         unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_bp)) + GET_SIZE(HDRP(next_bp));
         PUT(HDRP(prev_bp), PACK(asize, 0));
         PUT(FTRP(prev_bp), PACK(asize, 0));
+
+        // insert coalesced free block to free list
+        insert_free_block(prev_bp);
+
         CHECKHEAP("after coalesce");
         return (void *)prev_bp;
     }
@@ -740,6 +766,11 @@ static int aligned(const void *p)
     return ((size_t)p % ALIGNMENT) == 0;
 }
 
+static void mm_check_free_list(const char *where)
+{
+    void *bp = free_list_head;
+}
+
 static void remove_free_block(void *bp)
 {
     if (bp == NULL)
@@ -770,4 +801,26 @@ static void remove_free_block(void *bp)
             free_list_head = SUCC_BLKP(bp);
         }
     }
+}
+
+static void insert_free_block(void *bp)
+{
+    void *old_ptr = free_list_head;
+    void *new_ptr = bp;
+
+    PRED_BLKP(new_ptr) = NULL;
+
+    // no free block
+    if (old_ptr == NULL)
+    {
+        SUCC_BLKP(new_ptr) = NULL;
+    }
+    else
+    {
+        SUCC_BLKP(new_ptr) = old_ptr;
+        PRED_BLKP(old_ptr) = new_ptr;
+    }
+
+    // indicate new_block
+    free_list_head = new_ptr;
 }
