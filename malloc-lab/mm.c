@@ -77,6 +77,18 @@ team_t team = {
 /* get prev block payload pointer */
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DWORD))
 
+/* get current block predecessor pointer */
+#define PRED(bp) (bp)
+
+/* get current block successor pointer */
+#define SUCC(bp) ((char *)bp + sizeof(void *))
+
+/* get predecessor block pointer*/
+#define PRED_BLKP(bp) (*(void **)PRED(bp))
+
+/* get successor block pointer */
+#define SUCC_BLKP(bp) (*(void **)SUCC(bp))
+
 /*********************************************************
  *  set degug mode
  *********************************************************/
@@ -292,6 +304,10 @@ static void *extend_heap(size_t words)
     {
         return implicit_extend_heap(words);
     }
+    else if (ALLOC_MODE == MODE_EXPLICIT)
+    {
+        return explicit_extend_heap(words);
+    }
     else
     {
         return NULL;
@@ -424,6 +440,10 @@ void mm_free(void *ptr)
     {
         implicit_mm_free(ptr);
     }
+    else if (ALLOC_MODE == MODE_EXPLICIT)
+    {
+        explicit_mm_free(ptr);
+    }
 }
 
 static void implicit_mm_free(void *ptr)
@@ -442,6 +462,31 @@ static void implicit_mm_free(void *ptr)
     coalesce(ptr);
 }
 
+static void explicit_mm_free(void *ptr)
+{
+    if (ptr == NULL)
+    {
+        return;
+    }
+
+    // check ptr is valid pointer
+    assert(in_heap(ptr));
+    assert(aligned(ptr));
+    assert(GET_ALLOC(HDRP(ptr)) == 1);
+
+    // check free_lsit_head block is valid
+    assert(free_list_head == NULL || in_heap(free_list_head));
+    assert(free_list_head == NULL || aligned(free_list_head));
+    assert(free_list_head == NULL || *(void **)PRED(free_list_head) == NULL);
+    assert(free_list_head == NULL || *(void **)SUCC(free_list_head) == NULL || PRED_BLKP(SUCC_BLKP(free_list_head)) == free_list_head);
+
+    PUT(HDRP(ptr), PACK(GET_SIZE(HDRP(ptr)), 0));
+    PUT(FTRP(ptr), PACK(GET_SIZE(HDRP(ptr)), 0));
+    coalesce(ptr);
+
+    // iterate free_list to check state
+}
+
 /*
  * coalesce - merge with adjacent free block
  */
@@ -451,6 +496,10 @@ static void *coalesce(void *ptr)
     {
         return implicit_coalesce(ptr);
     }
+    else if (ALLOC_MODE == MODE_EXPLICIT)
+    {
+        return explicit_coalesce(ptr);
+    }
     else
     {
         return NULL;
@@ -458,6 +507,53 @@ static void *coalesce(void *ptr)
 }
 
 static void *implicit_coalesce(void *ptr)
+{
+    assert(ptr != NULL);
+    assert(in_heap(ptr));
+    assert(aligned(ptr));
+    assert(GET_ALLOC(HDRP(ptr)) == 0);
+
+    char *bp = (char *)ptr;
+    void *prev_bp = PREV_BLKP(ptr);
+    void *next_bp = NEXT_BLKP(ptr);
+    unsigned char prev_allowed = GET_ALLOC(HDRP(prev_bp));
+    unsigned char next_allowed = GET_ALLOC(HDRP(next_bp));
+
+    if (prev_allowed && next_allowed)
+    {
+        CHECKHEAP("after coalesce");
+        return (void *)bp;
+    }
+
+    else if (prev_allowed && !next_allowed)
+    {
+        unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next_bp));
+        PUT(HDRP(bp), PACK(asize, 0));
+        PUT(FTRP(bp), PACK(asize, 0));
+        CHECKHEAP("after coalesce");
+        return (void *)bp;
+    }
+
+    else if (!prev_allowed && next_allowed)
+    {
+        unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_bp));
+        PUT(HDRP(prev_bp), PACK(asize, 0));
+        PUT(FTRP(prev_bp), PACK(asize, 0));
+        CHECKHEAP("after coalesce");
+        return (void *)prev_bp;
+    }
+
+    else
+    {
+        unsigned int asize = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_bp)) + GET_SIZE(HDRP(next_bp));
+        PUT(HDRP(prev_bp), PACK(asize, 0));
+        PUT(FTRP(prev_bp), PACK(asize, 0));
+        CHECKHEAP("after coalesce");
+        return (void *)prev_bp;
+    }
+}
+
+static void *explicit_coalesce(void *ptr)
 {
     assert(ptr != NULL);
     assert(in_heap(ptr));
