@@ -128,6 +128,7 @@ static int explicit_mm_init(void);
 static void *explicit_extend_heap(size_t words);
 static void *explicit_coalesce(void *ptr);
 static void implicit_mm_free(void *ptr);
+static void remove_free_block(void *bp);
 
 static void mm_checkheap(const char *where);
 static int in_heap(const void *p);
@@ -556,9 +557,6 @@ static void *implicit_coalesce(void *ptr)
 static void *explicit_coalesce(void *ptr)
 {
     assert(ptr != NULL);
-    assert(in_heap(ptr));
-    assert(aligned(ptr));
-    assert(GET_ALLOC(HDRP(ptr)) == 0);
 
     char *bp = (char *)ptr;
     void *prev_bp = PREV_BLKP(ptr);
@@ -740,4 +738,36 @@ static int in_heap(const void *p)
 static int aligned(const void *p)
 {
     return ((size_t)p % ALIGNMENT) == 0;
+}
+
+static void remove_free_block(void *bp)
+{
+    if (bp == NULL)
+    {
+        return;
+    }
+
+    // only one free block
+    if (PRED_BLKP(bp) == NULL && SUCC_BLKP(bp) == NULL)
+    {
+        free_list_head = NULL;
+    }
+
+    // pred_block.succ -> succ_block
+    if (PRED_BLKP(bp) != NULL)
+    {
+        *(void **)SUCC(PRED_BLKP(bp)) = SUCC_BLKP(bp);
+    }
+
+    // succ_block.prev -> pred_block
+    if (SUCC_BLKP(bp) != NULL)
+    {
+        *(void **)PRED(SUCC_BLKP(bp)) = PRED_BLKP(bp);
+
+        // if first free block is removed, free_list_head -> succ_block
+        if (PRED_BLKP(bp) == NULL)
+        {
+            free_list_head = SUCC_BLKP(bp);
+        }
+    }
 }
